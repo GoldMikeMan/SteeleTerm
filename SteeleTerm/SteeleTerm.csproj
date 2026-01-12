@@ -14,7 +14,7 @@
 		<PackageOutputPath>./bin/Release/nupkg</PackageOutputPath>
 		<TargetFramework>net10.0</TargetFramework>
 		<ToolCommandName>SteeleTerm</ToolCommandName>
-		<Version>0.0.4</Version>
+		<Version>0.1.0</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<None Include="Updater\UpdateScript.ps1">
