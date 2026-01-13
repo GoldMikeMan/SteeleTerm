@@ -6,8 +6,9 @@ using System.Text;
 [assembly: SupportedOSPlatform("windows")]
 namespace SteeleTerm
 {
-    internal static partial class SteeleTerm
+    class SteeleTerm
     {
+        internal static readonly object consoleLock = new();
         static int Main(string[] args)
         {
             Console.InputEncoding = Encoding.UTF8;
@@ -45,15 +46,17 @@ namespace SteeleTerm
             Console.Write(new string(' ', Math.Max(0, width - 1)));
             Console.SetCursorPosition(0, top);
         }
-        public static string? ReadToken(string prompt, string promptText)
+        public static string? ReadToken(string prompt, string promptText, bool echo = true, bool printPrompt = true, bool commitNewlineOnEnter = false, Func<ConsoleKeyInfo, bool>? immediateKey = null, Action<ConsoleKeyInfo>? onImmediateKey = null)
         {
-            Console.Write($"{prompt}{promptText}");
+            if (printPrompt) { lock (consoleLock) { Console.Write($"{prompt}{promptText}"); } }
             var buf = new StringBuilder();
             while (true)
             {
                 var k = Console.ReadKey(true);
+                if (buf.Length == 0 && immediateKey != null && immediateKey(k)) { onImmediateKey?.Invoke(k); continue; }
                 if (k.Key == ConsoleKey.Enter)
                 {
+                    if (commitNewlineOnEnter) { lock (consoleLock) { Console.WriteLine(""); } }
                     if (buf.Length == 0) return null;
                     return buf.ToString();
                 }
@@ -61,13 +64,13 @@ namespace SteeleTerm
                 {
                     if (buf.Length == 0) continue;
                     buf.Length--;
-                    Console.Write("\b \b");
+                    if (echo) { lock (consoleLock) { Console.Write("\b \b"); } }
                     continue;
                 }
                 if (k.KeyChar == '\0') continue;
                 if (char.IsControl(k.KeyChar)) continue;
                 buf.Append(k.KeyChar);
-                Console.Write(k.KeyChar);
+                if (echo) { lock (consoleLock) { Console.Write(k.KeyChar); } }
             }
         }
     }
