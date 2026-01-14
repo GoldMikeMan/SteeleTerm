@@ -1,5 +1,4 @@
-﻿using SteeleTerm;
-using System.IO.Ports;
+﻿using System.IO.Ports;
 using System.Management;
 using System.Text.RegularExpressions;
 namespace SteeleTerm.Serial
@@ -22,13 +21,13 @@ namespace SteeleTerm.Serial
             SteeleTerm.Say(prompt, "Available COM ports:");
             PrintTable(ports);
         SelectPort:
-            int lineTop = Console.CursorTop;
+            int portTop = Console.CursorTop;
             var selected = SteeleTerm.ReadToken(prompt, "Select COM port: ");
-            if (selected == null) { SteeleTerm.ClearLine(lineTop); goto SelectPort; }
+            if (selected == null) { SteeleTerm.ClearLine(portTop); goto SelectPort; }
             selected = selected.Trim();
-            if (selected.Length == 0) { SteeleTerm.ClearLine(lineTop); goto SelectPort; }
+            if (selected.Length == 0) { SteeleTerm.ClearLine(portTop); goto SelectPort; }
             if (string.Equals(selected, "Exit", StringComparison.Ordinal)) { Console.WriteLine(""); return 0; }
-            if (!validPortNumbers.Contains(selected)) { SteeleTerm.ClearLine(lineTop); goto SelectPort; }
+            if (!validPortNumbers.Contains(selected)) { SteeleTerm.ClearLine(portTop); goto SelectPort; }
             Console.WriteLine("");
             var portNum = int.Parse(selected);
             var selectedPort = ports.First(p => GetPortNumber(p.Port) == portNum);
@@ -87,11 +86,16 @@ namespace SteeleTerm.Serial
                     serialPort.ReadTimeout = 250;
                     serialPort.WriteTimeout = 250;
                     serialPort.Open();
-                    SteeleTerm.Say(prompt, $"✅ Opened connection to {selectedPort.Port} at {baudRate} using {dataBits}{GetParityChar(parity)}{GetStopBitsText(stopBits)}.");
                     Console.WriteLine("");
+                    SteeleTerm.Say(prompt, $"✅ Connection to {selectedPort.Port} opened.");
                     var stop = false;
                     int forceLineStart = 0;
                     string? suppressEchoLine = null;
+                    var waitingRx = 0;
+                    using var rxSpinner = new SteeleTerm.ConsoleSpinner(SteeleTerm.consoleLock, 80);
+                    int secretMode = 0;
+                    int suppressSecretEchoState = 0;
+                    bool echoEnabled() => Volatile.Read(ref secretMode) == 0;
                     var rxThread = new Thread(() => {
                         var buf = new char[4096];
                         var echoBuf = new System.Text.StringBuilder();
@@ -100,6 +104,9 @@ namespace SteeleTerm.Serial
                         string? expected = null;
                         int echoPos = 0;
                         bool skipNextLf = false;
+                        int rxMinTop = 0;
+                        int rxMinLeft = 0;
+                        var rxTail = new System.Text.StringBuilder(64);
                         while (!Volatile.Read(ref stop))
                         {
                             try
@@ -114,7 +121,39 @@ namespace SteeleTerm.Serial
                                         char c = buf[i];
                                         if (skipNextLf && c == '\n') { skipNextLf = false; continue; }
                                         if (c == '\r') { c = '\n'; skipNextLf = true; }
+                                        if (c == '\u007F') c = '\b';
+                                        if (c == '\b')
+                                        {
+                                            if (Console.CursorTop > rxMinTop || Console.CursorLeft > rxMinLeft) Console.Write('\b');
+                                            continue;
+                                        }
                                         if (c != '\n' && char.IsControl(c)) continue;
+                                        if (atLineStart && c != '\n') rxTail.Clear();
+                                        if (c != '\n')
+                                        {
+                                            if (rxTail.Length == 64) rxTail.Remove(0, 1);
+                                            rxTail.Append(c);
+                                            if (c == ':')
+                                            {
+                                                var t = rxTail.ToString();
+                                                if (t.EndsWith("Password:", StringComparison.OrdinalIgnoreCase) || t.EndsWith("PIN:", StringComparison.OrdinalIgnoreCase) || t.EndsWith("Passphrase:", StringComparison.OrdinalIgnoreCase) || t.EndsWith("Passcode:", StringComparison.OrdinalIgnoreCase) || t.EndsWith("Secret:", StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    Volatile.Write(ref secretMode, 1);
+                                                    Volatile.Write(ref suppressSecretEchoState, 1);
+                                                }
+                                            }
+                                        }
+                                        int s = Volatile.Read(ref suppressSecretEchoState);
+                                        if (s != 0)
+                                        {
+                                            if (c == '\n') { Volatile.Write(ref suppressSecretEchoState, 0); }
+                                            else if (s == 1)
+                                            {
+                                                if (c == ':' || c == ' ') { }
+                                                else { Volatile.Write(ref suppressSecretEchoState, 2); continue; }
+                                            }
+                                            else { continue; }
+                                        }
                                         if (atLineStart)
                                         {
                                             if (c == '\n') continue;
@@ -124,8 +163,11 @@ namespace SteeleTerm.Serial
                                             echoBuf.Clear();
                                             if (!suppressing)
                                             {
+                                                SteeleTerm.StopSpinnerIfArmed(ref waitingRx, rxSpinner);
                                                 if (Console.CursorLeft != 0) Console.WriteLine("");
                                                 Console.Write(prompt);
+                                                rxMinTop = Console.CursorTop;
+                                                rxMinLeft = Console.CursorLeft;
                                             }
                                             atLineStart = false;
                                         }
@@ -136,8 +178,11 @@ namespace SteeleTerm.Serial
                                                 if (expected != null && echoPos == expected.Length) { Volatile.Write(ref suppressEchoLine, null); }
                                                 else
                                                 {
+                                                    SteeleTerm.StopSpinnerIfArmed(ref waitingRx, rxSpinner);
                                                     if (Console.CursorLeft != 0) Console.WriteLine("");
                                                     Console.Write(prompt);
+                                                    rxMinTop = Console.CursorTop;
+                                                    rxMinLeft = Console.CursorLeft;
                                                     Console.WriteLine(echoBuf.ToString());
                                                 }
                                                 suppressing = false;
@@ -150,8 +195,11 @@ namespace SteeleTerm.Serial
                                                 echoPos++;
                                                 continue;
                                             }
+                                            SteeleTerm.StopSpinnerIfArmed(ref waitingRx, rxSpinner);
                                             if (Console.CursorLeft != 0) Console.WriteLine("");
                                             Console.Write(prompt);
+                                            rxMinTop = Console.CursorTop;
+                                            rxMinLeft = Console.CursorLeft;
                                             Console.Write(echoBuf.ToString());
                                             Console.Write(c);
                                             suppressing = false;
@@ -170,18 +218,26 @@ namespace SteeleTerm.Serial
                     serialPort.Write("\r");
                     while (true)
                     {
-                        var line = SteeleTerm.ReadToken(prompt, "", true, false, false, k => k.Key == ConsoleKey.Spacebar, k => serialPort.Write(" "));
+                        bool secret = Volatile.Read(ref secretMode) != 0;
+                        var line = SteeleTerm.ReadToken(prompt, "", true, false, false, k => k.Key == ConsoleKey.Spacebar || k.Key == ConsoleKey.Backspace || k.Key == ConsoleKey.Delete, k => {
+                            if (k.Key == ConsoleKey.Spacebar) { serialPort.Write(" "); return; }
+                            if (k.Key == ConsoleKey.Backspace) { serialPort.Write("\b"); return; }
+                            if (k.Key == ConsoleKey.Delete) { serialPort.Write("\u007F"); }
+                        }, echoEnabled);
                         Interlocked.Exchange(ref forceLineStart, 1);
-                        if (line == null) { serialPort.Write("\r"); continue; }
+                        if (line == null) { Volatile.Write(ref secretMode, 0); serialPort.Write("\r"); continue; }
+                        Volatile.Write(ref secretMode, 0);
                         lock (SteeleTerm.consoleLock) { Console.WriteLine(""); }
                         if (string.Equals(line.Trim(), "Exit", StringComparison.Ordinal))
                         {
                             Volatile.Write(ref stop, true);
                             try { serialPort.Close(); } catch { }
                             try { rxThread.Join(250); } catch { }
-                            SteeleTerm.Say(prompt, $"✅ Connection to {selectedPort.Port} closed.");
+                            SteeleTerm.Say(prompt, $"🚪 Connection to {selectedPort.Port} closed.");
                             break;
                         }
+                        Interlocked.Exchange(ref waitingRx, 1);
+                        rxSpinner.Start(prompt, "Waiting for RX");
                         Volatile.Write(ref suppressEchoLine, line.TrimEnd());
                         serialPort.WriteLine(line);
                     }
@@ -196,16 +252,8 @@ namespace SteeleTerm.Serial
         }
         private static void SetPromptDisconnected() { prompt = " 🔌 > "; }
         private static void SetPromptCOM(string port) { prompt = $" 🔌 {port} > "; }
-        private static string SetPromptBaud(string port, int baud)
-        {
-            prompt = $" 🔌 {port} {baud} > ";
-            return prompt;
-        }
-        private static void SetPromptBits(string port, int baud, int dataBits, Parity parity, StopBits stopBits)
-        {
-            var fmt = $"{dataBits}{GetParityChar(parity)}{GetStopBitsText(stopBits)}";
-            prompt = $" 🔌 {port} {baud} {fmt} > ";
-        }
+        private static void SetPromptBaud(string port, int baud) { prompt = $" 🔌 {port} {baud} > "; }
+        private static void SetPromptBits(string port, int baud, int dataBits, Parity parity, StopBits stopBits) { prompt = $" 🔌 {port} {baud} {dataBits}{GetParityChar(parity)}{GetStopBitsText(stopBits)} > "; }
         private static string GetStopBitsText(StopBits stopBits)
         {
             if (stopBits == StopBits.One) return "1";

@@ -46,13 +46,38 @@ namespace SteeleTerm
             Console.Write(new string(' ', Math.Max(0, width - 1)));
             Console.SetCursorPosition(0, top);
         }
-        public static string? ReadToken(string prompt, string promptText, bool echo = true, bool printPrompt = true, bool commitNewlineOnEnter = false, Func<ConsoleKeyInfo, bool>? immediateKey = null, Action<ConsoleKeyInfo>? onImmediateKey = null)
+        public static string? ReadToken(string prompt, string promptText, bool echo = true, bool printPrompt = true, bool commitNewlineOnEnter = false, Func<ConsoleKeyInfo, bool>? immediateKey = null, Action<ConsoleKeyInfo>? onImmediateKey = null, Func<bool>? echoEnabled = null)
         {
-            if (printPrompt) { lock (consoleLock) { Console.Write($"{prompt}{promptText}"); } }
+            int startTop;
+            int startLeft;
+            lock (consoleLock)
+            {
+                if (printPrompt) Console.Write($"{prompt}{promptText}");
+                startTop = Console.CursorTop;
+                startLeft = Console.CursorLeft;
+            }
             var buf = new StringBuilder();
+            int echoedCount = 0;
+            bool lastEcho = (echoEnabled?.Invoke() ?? echo);
             while (true)
             {
                 var k = Console.ReadKey(true);
+                bool echoNow = (echoEnabled?.Invoke() ?? echo);
+                if (lastEcho && !echoNow && echoedCount != 0)
+                {
+                    lock (consoleLock)
+                    {
+                        for (int i = 0; i < echoedCount; i++)
+                        {
+                            int top = Console.CursorTop;
+                            int left = Console.CursorLeft;
+                            if (top < startTop || (top == startTop && left <= startLeft)) break;
+                            Console.Write("\b \b");
+                        }
+                    }
+                    echoedCount = 0;
+                }
+                lastEcho = echoNow;
                 if (buf.Length == 0 && immediateKey != null && immediateKey(k)) { onImmediateKey?.Invoke(k); continue; }
                 if (k.Key == ConsoleKey.Enter)
                 {
@@ -64,14 +89,71 @@ namespace SteeleTerm
                 {
                     if (buf.Length == 0) continue;
                     buf.Length--;
-                    if (echo) { lock (consoleLock) { Console.Write("\b \b"); } }
+                    if (echoNow && echoedCount != 0)
+                    {
+                        lock (consoleLock)
+                        {
+                            int top = Console.CursorTop;
+                            int left = Console.CursorLeft;
+                            if (top > startTop || (top == startTop && left > startLeft)) Console.Write("\b \b");
+                        }
+                        echoedCount--;
+                    }
                     continue;
                 }
                 if (k.KeyChar == '\0') continue;
                 if (char.IsControl(k.KeyChar)) continue;
                 buf.Append(k.KeyChar);
-                if (echo) { lock (consoleLock) { Console.Write(k.KeyChar); } }
+                if (echoNow) { lock (consoleLock) { Console.Write(k.KeyChar); } echoedCount++; }
             }
+        }
+        public sealed class ConsoleSpinner(object outputLock, int intervalMs = 100) : IDisposable
+        {
+            readonly string[] frames = ["|", "/", "-", "\\"];
+            readonly object outputLock = outputLock;
+            readonly int intervalMs = intervalMs;
+            Thread? t;
+            volatile bool running;
+            string text = "";
+            bool oldCursorVisible = true;
+            public void Start(string prompt, string text)
+            {
+                if (Console.IsOutputRedirected) return;
+                if (running) return;
+                this.text = text;
+                running = true;
+                try { oldCursorVisible = Console.CursorVisible; Console.CursorVisible = false; } catch { }
+                t = new Thread(() => {
+                    int i = 0;
+                    while (running)
+                    {
+                        lock (outputLock) { try { Console.Write("\r" + prompt + this.text + " " + frames[i++ % frames.Length]); } catch { } }
+                        Thread.Sleep(intervalMs);
+                    }
+                }) { IsBackground = true };
+                t.Start();
+            }
+            public void Stop()
+            {
+                if (!running) return;
+                running = false;
+                try { t?.Join(); } catch { }
+                lock (outputLock)
+                {
+                    try
+                    {
+                        int w = Math.Max(1, Console.BufferWidth);
+                        Console.Write("\r" + new string(' ', Math.Max(0, w - 1)) + "\r");
+                    }
+                    catch { try { Console.Write("\r"); } catch { } }
+                    try { Console.CursorVisible = oldCursorVisible; } catch { }
+                }
+            }
+            public void Dispose() { Stop(); }
+        }
+        public static void StopSpinnerIfArmed(ref int waitingRx, ConsoleSpinner rxSpinner)
+        {
+            if (Interlocked.Exchange(ref waitingRx, 0) == 1) rxSpinner.Stop();
         }
     }
 }
