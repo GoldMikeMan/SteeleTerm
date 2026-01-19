@@ -1,4 +1,5 @@
 ﻿using SteeleTerm.Serial;
+using SteeleTerm.SSH;
 using SteeleTerm.ToolBox;
 using SteeleTerm.Updater;
 using System.Runtime.Versioning;
@@ -17,6 +18,8 @@ namespace SteeleTerm
             if (Update.TryHandleUpdateCommandTree(args, "SteeleTerm", "SteeleTerm.csproj", out var updateExitCode)) return updateExitCode;
             bool hasHelp = args.Contains("--help", StringComparer.Ordinal);
             bool hasSerial = args.Contains("--serial", StringComparer.Ordinal);
+            bool hasSSH = args.Contains("--ssh", StringComparer.Ordinal);
+            if ((hasHelp && hasSerial) || (hasHelp && hasSSH) || (hasSerial && hasSSH)) { Console.WriteLine("Only one primary argument allowed."); return 1; }
             if (args.Length == 0) { Console.WriteLine("Use --help for arg list."); return 1; }
             if (hasHelp)
             {
@@ -36,6 +39,7 @@ namespace SteeleTerm
                 return 0;
             }
             if (hasSerial) { SteeleTermSerial.Serial(); return 0; }
+            if (hasSSH) { SteeleTermSSH.SSH(); return 0; }
             else return 0;
         }
         public static void Say(string prompt, string message) { Console.WriteLine($"{prompt}{message}"); }

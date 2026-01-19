@@ -14,13 +14,14 @@
 		<PackageOutputPath>./bin/Release/nupkg</PackageOutputPath>
 		<TargetFramework>net10.0</TargetFramework>
 		<ToolCommandName>SteeleTerm</ToolCommandName>
-		<Version>0.2.5</Version>
+		<Version>0.2.9</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<None Include="Updater\UpdateScript.ps1">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</None>
+		<PackageReference Include="SSH.NET" Version="2025.1.0" />
 	  <PackageReference Include="System.IO.Ports" Version="10.*" />
 	  <PackageReference Include="System.Management" Version="10.*" />
 	</ItemGroup>
