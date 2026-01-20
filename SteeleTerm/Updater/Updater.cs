@@ -37,8 +37,8 @@ namespace SteeleTerm.Updater
                 var currentHash = ComputeFileHash(installedNupkg);
                 Console.WriteLine($"🔒 Currently installed package hash: {currentHash}");
                 Console.WriteLine("🏗️ Building and packing current version...");
-                Cmd.Run("dotnet", "build -c Release", projectDir, false, false, false, true);
-                Cmd.Run("dotnet", "pack -c Release", projectDir, false, false, false, true);
+                Cmd.Run("dotnet", "build -c Release", projectDir, false, false, true, true);
+                Cmd.Run("dotnet", "pack -c Release", projectDir, false, false, true, true);
                 var latestForCompare = FindLatestNupkg(nupkgPath);
                 Console.WriteLine($"📁 Latest nupkg package found: {Path.GetFileName(latestForCompare)} (modified {File.GetLastWriteTime(latestForCompare):dd-MM-yyyy HH:mm:ss})");
                 Console.WriteLine("🔄 Hashing new package...");
@@ -70,8 +70,8 @@ namespace SteeleTerm.Updater
                 }
                 else Console.WriteLine("⏭️ Skipping version increment");
                 Console.WriteLine("🏗️ Building and packing...");
-                Cmd.Run("dotnet", "build -c Release", projectDir, false, false, false, true);
-                Cmd.Run("dotnet", "pack -c Release", projectDir, false, false, false, true);
+                Cmd.Run("dotnet", "build -c Release", projectDir, false, false, true, true);
+                Cmd.Run("dotnet", "pack -c Release", projectDir, false, false, true, true);
             }
             catch (Exception ex) { Console.WriteLine($"❌ Update failed: {ex.Message}"); Cleanup(newVersion, oldVersion, csprojPath); return; }
             var nupkg = FindLatestNupkg(nupkgPath);
