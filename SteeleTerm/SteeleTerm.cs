@@ -1,7 +1,9 @@
-﻿using SteeleTerm.Serial;
+﻿using Microsoft.Win32;
+using SteeleTerm.Serial;
 using SteeleTerm.SSH;
 using SteeleTerm.ToolBox;
 using SteeleTerm.Updater;
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text;
 [assembly: SupportedOSPlatform("windows")]
@@ -14,18 +16,16 @@ namespace SteeleTerm
         {
             Console.InputEncoding = Encoding.UTF8;
             Console.OutputEncoding = Encoding.UTF8;
-            if (!ToolBoxHandshake.VerifyToolBoxHost()) return 1;
-            if (Update.TryHandleUpdateCommandTree(args, "SteeleTerm", "SteeleTerm.csproj", out var updateExitCode)) return updateExitCode;
+            bool hasFileBrowser = args.Contains("--fileBrowser", StringComparer.Ordinal);
             bool hasHelp = args.Contains("--help", StringComparer.Ordinal);
             bool hasSerial = args.Contains("--serial", StringComparer.Ordinal);
             bool hasSSH = args.Contains("--ssh", StringComparer.Ordinal);
-            if ((hasHelp && hasSerial) || (hasHelp && hasSSH) || (hasSerial && hasSSH)) { Console.WriteLine("Only one primary argument allowed."); return 1; }
-            if (args.Length == 0) { Console.WriteLine("Use --help for arg list."); return 1; }
             if (hasHelp)
             {
                 Console.WriteLine("Commands:");
                 Console.WriteLine("  \'SteeleTerm\'                         Print \'Use --help for arg list\' message.");
                 Console.WriteLine("Primary args:");
+                Console.WriteLine("  \'--fileBrowser\'                       Open SteeleTerm file browser.");
                 Console.WriteLine("  \'--help\'                              Print help list to console.");
                 Console.WriteLine("  \'--serial\'                            Open SteeleTerm in serial mode.");
                 Console.WriteLine("  \'--ssh\'                               Open SteeleTerm in ssh mode.");
@@ -38,6 +38,11 @@ namespace SteeleTerm
                 Console.WriteLine("  \'<primary> <secondary> --skipVersion\' Do not update version number. Requires --forceUpdate arg.");
                 return 0;
             }
+            if (!ToolBoxHandshake.VerifyToolBoxHost()) return 1;
+            if (Update.TryHandleUpdateCommandTree(args, "SteeleTerm", "SteeleTerm.csproj", out var updateExitCode)) return updateExitCode;
+            if ((hasHelp && hasSerial) || (hasHelp && hasSSH) || (hasSerial && hasSSH) || (hasHelp && hasFileBrowser) || (hasSerial && hasFileBrowser) || (hasSSH && hasFileBrowser)) { Console.WriteLine("Only one primary argument allowed."); return 1; }
+            if (args.Length == 0) { Console.WriteLine("Use --help for arg list."); return 1; }
+            if (hasFileBrowser) { SteeleTermFileBrowser(Directory.GetCurrentDirectory(), true); return 0; }
             if (hasSerial) { SteeleTermSerial.Serial(); return 0; }
             if (hasSSH) { SteeleTermSSH.SSH(); return 0; }
             else return 0;
@@ -169,102 +174,251 @@ namespace SteeleTerm
         {
             if (Interlocked.Exchange(ref waitingRx, 0) == 1) rxSpinner.Stop();
         }
-        public static string? SteeleTermFileBrowser(string prompt, string title, string? startDir)
+        public static string? SteeleTermFileBrowser(string? startDir, bool allowOpen)
         {
+            string promptFileBrowser = " 📂 > ";
             string cwd = startDir ?? "";
-            if (cwd.Length == 0 || !Directory.Exists(cwd)) cwd = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            bool inThisPc = false;
+            if (cwd.Length == 0 || !Directory.Exists(cwd)) cwd = Directory.GetCurrentDirectory();
             while (true)
             {
-                try { Console.Clear(); } catch { }
-                Console.WriteLine($"{prompt}{title}");
-                Console.WriteLine($"{prompt}{cwd}");
-                string[] dirs;
-                string[] files;
-                try { dirs = Directory.GetDirectories(cwd); files = Directory.GetFiles(cwd); }
-                catch { Console.WriteLine($"{prompt}Cannot access directory."); var parent = Directory.GetParent(cwd); if (parent != null) cwd = parent.FullName; ReadToken(prompt, "Press Enter to continue: ", true, true, true); continue; }
+                string currentDir = Directory.GetCurrentDirectory();
+                string[] dirs = [];
+                string[] files = [];
                 var items = new List<(bool IsDir, string Name, string FullPath)>();
-                for (int d = 0; d < dirs.Length; d++) items.Add((true, Path.GetFileName(dirs[d]), dirs[d]));
-                for (int f = 0; f < files.Length; f++) items.Add((false, Path.GetFileName(files[f]), files[f]));
+                if (inThisPc)
+                {
+                    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    bool redirected = Console.IsOutputRedirected;
+                    int scanTop = Console.CursorTop;
+                    int waitingScan = 1;
+                    ConsoleSpinner? scanSpinner = null;
+                    if (!redirected)
+                    {
+                        scanSpinner = new ConsoleSpinner(consoleLock);
+                        if (Console.CursorLeft != 0) Console.WriteLine("");
+                        scanSpinner.Start(promptFileBrowser, "Scanning drives ");
+                    }
+                    else Console.WriteLine($"{promptFileBrowser}Scanning drives...");
+                    var drives = DriveInfo.GetDrives();
+                    var uncCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                    for (int d = 0; d < drives.Length; d++)
+                    {
+                        var di = drives[d];
+                        string root = di.Name;
+                        string drive = root.TrimEnd('\\');
+                        if (drive.Length >= 2 && drive[1] == ':') drive = char.ToUpperInvariant(drive[0]) + ":";
+                        string label = "";
+                        if (di.DriveType != DriveType.Network)
+                        {
+                            try { if (di.IsReady) label = (di.VolumeLabel ?? "").Trim(); } catch { }
+                            string disp = label.Length == 0 ? $"({drive})" : $"({drive}) {label}";
+                            items.Add((true, disp, root));
+                            continue;
+                        }
+                        string disp2 = label.Length == 0 ? $"({drive})" : $"({drive}) {label}";
+                        if (!uncCache.TryGetValue(drive, out string? unc))
+                        {
+                            string? uncResult = null;
+                            var t = new Thread(() => { try { uncResult = TryGetUncForDrive(drive); } catch { } }) { IsBackground = true };
+                            t.Start();
+                            if (t.Join(250)) unc = uncResult;
+                            else unc = null;
+                            uncCache[drive] = unc;
+                        }
+                        if (!string.IsNullOrEmpty(unc)) disp2 += $" {unc}";
+                        items.Add((true, disp2, root));
+                    }
+                    if (scanSpinner != null) StopSpinnerIfArmed(ref waitingScan, scanSpinner);
+                    if (!redirected)
+                    {
+                        ClearLine(scanTop);
+                        Console.SetCursorPosition(0, scanTop);
+                    }
+                    try
+                    {
+                        using var net = Registry.CurrentUser.OpenSubKey(@"Network");
+                        if (net != null)
+                        {
+                            foreach (var letter in net.GetSubKeyNames())
+                            {
+                                using var dk = net.OpenSubKey(letter);
+                                string? unc = dk?.GetValue("RemotePath") as string;
+                                if (string.IsNullOrEmpty(unc)) continue;
+                                string drive = letter.EndsWith(':') ? letter : letter + ":";
+                                drive = letter.Length > 0 ? char.ToUpperInvariant(letter[0]) + ":" : "";
+                                if (seen.Contains(drive)) continue;
+                                string disp = $"({drive}) {unc}";
+                                items.Add((true, disp, unc)); // FullPath is UNC so traversal works
+                                seen.Add(drive);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+                else
+                {
+                    try { dirs = Directory.GetDirectories(cwd); files = Directory.GetFiles(cwd); }
+                    catch { Console.WriteLine($"{promptFileBrowser}Cannot access directory."); var parent = Directory.GetParent(cwd); if (parent != null) { cwd = parent.FullName; continue; } inThisPc = true; continue; }
+                    for (int d = 0; d < dirs.Length; d++) items.Add((true, Path.GetFileName(dirs[d]), dirs[d]));
+                    for (int f = 0; f < files.Length; f++) items.Add((false, Path.GetFileName(files[f]), files[f]));
+                }
                 int count = items.Count;
                 var display = new List<string>(count);
                 int maxLen = 0;
                 for (int k = 0; k < count; k++)
                 {
-                    string s = $"{k + 1:00} {(items[k].IsDir ? "[📁]" : "[📜]")} {items[k].Name}";
+                    string icon = inThisPc ? "[💽]" : (items[k].IsDir ? "[📁]" : "[📄]");
+                    string s = $"{k + 1:00} {icon} {items[k].Name}";
                     display.Add(s);
                     if (s.Length > maxLen) maxLen = s.Length;
                 }
                 int consoleWidth;
                 try { consoleWidth = Console.WindowWidth; } catch { consoleWidth = 120; }
                 consoleWidth = Math.Max(60, consoleWidth);
-                int prefixWidth = prompt.Length;
+                int prefixWidth = promptFileBrowser.Length;
                 int w = Math.Max(40, consoleWidth - prefixWidth);
                 int sep = 3;
-                int itemWidth = Math.Min(70, Math.Max(18, maxLen));
+                int itemWidth = Math.Min(32, Math.Max(18, maxLen));
                 int cols = Math.Max(1, (w + sep) / (itemWidth + sep));
                 int total = cols * itemWidth + (cols - 1) * sep;
                 string bar = new('-', total);
-                Console.WriteLine(prompt + bar);
-                string head = title.Length > total ? string.Concat(title.AsSpan(0, Math.Max(0, total - 3)), "...") : title;
-                Console.WriteLine(prompt + head.PadRight(total));
-                string pathLine = cwd.Length > total ? string.Concat(cwd.AsSpan(0, Math.Max(0, total - 3)), "...") : cwd;
-                Console.WriteLine(prompt + pathLine.PadRight(total));
-                Console.WriteLine(prompt + bar);
+                Console.WriteLine();
+                bool redirectedRender = Console.IsOutputRedirected;
+                int renderTop = Console.CursorTop;
+                int waitingRender = 1;
+                ConsoleSpinner? renderSpinner = null;
+                if (!redirectedRender)
+                {
+                    if (Console.CursorLeft != 0) Console.WriteLine("");
+                    renderTop = Console.CursorTop;
+                    renderSpinner = new ConsoleSpinner(consoleLock);
+                    renderSpinner.Start(promptFileBrowser, inThisPc ? "Building drive list " : "Building table ");
+                }
+                byte[] colour = new byte[count];
+                if (!inThisPc)
+                {
+                    for (int k = 0; k < count; k++)
+                    {
+                        try
+                        {
+                            string p = items[k].FullPath;
+                            if (p.StartsWith(@"\\", StringComparison.Ordinal)) continue;
+                            var attr = File.GetAttributes(p);
+                            if ((attr & FileAttributes.Encrypted) != 0) colour[k] = 1;
+                            else if ((attr & FileAttributes.Compressed) != 0) colour[k] = 2;
+                        }
+                        catch { }
+                    }
+                }
+                string header;
+                if (inThisPc) header = "This PC\\";
+                else
+                {
+                    try
+                    {
+                        var root = Path.GetPathRoot(cwd);
+                        if (!string.IsNullOrEmpty(root) && root.StartsWith(@"\\", StringComparison.Ordinal)) header = $"This PC\\[UNC] {cwd}\\";
+                        else if (!string.IsNullOrEmpty(root))
+                        {
+                            var di = new DriveInfo(root);
+                            string drive = di.Name.TrimEnd('\\'); // "C:"
+                            string fmt = di.IsReady ? di.DriveFormat : "NOTREADY";
+                            string label = di.IsReady ? (di.VolumeLabel ?? "") : "";
+                            label = label.Trim();
+                            header = label.Length == 0 ? $"This PC\\[{fmt}] {cwd}" : $"This PC\\{label} [{fmt}] {cwd}\\";
+                        }
+                        else header = $"This PC\\[PATH] {cwd}\\";
+                    }
+                    catch { header = $"This PC\\[FS] {cwd}\\"; }
+                }
+                string pathLine = header.Length > total ? string.Concat(header.AsSpan(0, Math.Max(0, total - 3)), "...") : header;
                 int rows = (count + cols - 1) / cols;
+                var cellText = new string?[rows, cols];
+                var cellIdx = new int[rows, cols];
                 for (int r = 0; r < rows; r++)
                 {
-                    var line = new System.Text.StringBuilder(total + 16);
                     for (int c = 0; c < cols; c++)
                     {
-                        int idx = r * cols + c;
+                        int idx = c * rows + r;
                         if (idx >= count) break;
                         string s = display[idx];
                         if (s.Length > itemWidth) s = string.Concat(s.AsSpan(0, Math.Max(0, itemWidth - 3)), "...");
-                        if (c != 0) line.Append(" | ");
-                        line.Append(s.PadRight(itemWidth));
+                        cellText[r, c] = s.PadRight(itemWidth);
+                        cellIdx[r, c] = idx;
                     }
-                    Console.WriteLine(prompt + line.ToString());
                 }
-                Console.WriteLine(prompt + bar);
-                Console.WriteLine(prompt + "Commands: <n>=open/select  open <n>  select <n>  back/..  exit(browser)  Exit(SteeleTerm)");
-                string? input = ReadToken(prompt, "> ", true, true, true);
+                if (renderSpinner != null) StopSpinnerIfArmed(ref waitingRender, renderSpinner);
+                if (!redirectedRender)
+                {
+                    ClearLine(renderTop);
+                    Console.SetCursorPosition(0, renderTop);
+                }
+                Console.WriteLine("      " + pathLine.PadRight(total));
+                Console.WriteLine("      " + bar);
+                for (int r = 0; r < rows; r++)
+                {
+                    Console.Write("      ");
+                    for (int c = 0; c < cols; c++)
+                    {
+                        string? cell = cellText[r, c];
+                        if (cell == null) break;
+                        if (c != 0) Console.Write(" | ");
+                        int idx = cellIdx[r, c];
+                        var old = Console.ForegroundColor;
+                        if (colour[idx] == 1) Console.ForegroundColor = ConsoleColor.Green;
+                        else if (colour[idx] == 2) Console.ForegroundColor = ConsoleColor.Blue;
+                        Console.Write(cell);
+                        Console.ForegroundColor = old;
+                    }
+                    Console.WriteLine();
+                }
+                Console.WriteLine("      " + bar);
+                Console.WriteLine("      Commands: ## = open/select | back = go up a directory | exit = close file browser | Exit = close SteeleTerm");
+                Console.WriteLine();
+                string? input = ReadToken(promptFileBrowser, "", true, true, true);
                 if (input == null) continue;
                 input = input.Trim();
                 if (input.Length == 0) continue;
                 if (string.Equals(input, "Exit", StringComparison.Ordinal)) return "Exit";
-                if (string.Equals(input, "exit", StringComparison.Ordinal)) return null;
-                if (string.Equals(input, "back", StringComparison.Ordinal) || string.Equals(input, "..", StringComparison.Ordinal))
+                if (string.Equals(input, "exit", StringComparison.Ordinal)) return "exit";
+                if (string.Equals(input, "back", StringComparison.Ordinal))
                 {
+                    if (inThisPc) continue;
                     var parent = Directory.GetParent(cwd);
-                    if (parent != null) cwd = parent.FullName;
+                    if (parent != null) { cwd = parent.FullName; continue; }
+                    inThisPc = true;
                     continue;
                 }
                 if (input.Length >= 2 && ((input[0] == '"' && input[^1] == '"') || (input[0] == '\'' && input[^1] == '\''))) input = input[1..^1];
                 if (File.Exists(input)) return Path.GetFullPath(input);
                 if (Directory.Exists(input)) { cwd = Path.GetFullPath(input); continue; }
-                int sp = input.IndexOf(' ');
-                string cmd = sp > 0 ? input[..sp] : input;
-                string arg = sp > 0 ? input[(sp + 1)..].Trim() : "";
-                int n;
-                if (string.Equals(cmd, "open", StringComparison.OrdinalIgnoreCase))
+                if (int.TryParse(input, out int n) && n >= 1 && n <= count)
                 {
-                    if (!int.TryParse(arg, out n) || n < 1 || n > count) continue;
-                    if (!items[n - 1].IsDir) continue;
-                    cwd = items[n - 1].FullPath;
-                    continue;
-                }
-                if (string.Equals(cmd, "select", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!int.TryParse(arg, out n) || n < 1 || n > count) continue;
-                    if (items[n - 1].IsDir) continue;
-                    return items[n - 1].FullPath;
-                }
-                if (int.TryParse(input, out n) && n >= 1 && n <= count)
-                {
-                    if (items[n - 1].IsDir) { cwd = items[n - 1].FullPath; continue; }
+                    if (allowOpen && !items[n - 1].IsDir)
+                    {
+                        try { Process.Start(new ProcessStartInfo { FileName = items[n - 1].FullPath, UseShellExecute = true }); }
+                        catch (Exception ex) { Console.WriteLine($"{promptFileBrowser}Cannot open file: {ex.Message}"); }
+                        continue;
+                    }
+                    if (items[n - 1].IsDir) { cwd = items[n - 1].FullPath; inThisPc = false; continue; }
                     return items[n - 1].FullPath;
                 }
             }
+        }
+        [System.Runtime.InteropServices.DllImport("mpr.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int WNetGetConnection(string localName, StringBuilder remoteName, ref int length);
+        static string? TryGetUncForDrive(string driveLetter)
+        {
+            try
+            {
+                int len = 1024;
+                var sb = new StringBuilder(len);
+                int rc = WNetGetConnection(driveLetter, sb, ref len);
+                if (rc == 0) return sb.ToString();
+            }
+            catch { }
+            return null;
         }
     }
 }

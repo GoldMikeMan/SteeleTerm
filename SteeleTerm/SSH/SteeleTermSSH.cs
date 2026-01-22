@@ -47,7 +47,7 @@ namespace SteeleTerm.SSH
             Console.WriteLine("      ## Authentication Method:");
             Console.WriteLine("      -- --------------------------------");
             Console.WriteLine("      01 Password / OTP Authentication");
-            Console.WriteLine("      02 Public Key Authentication");
+            Console.WriteLine("      02 Private Key Authentication");
             Console.WriteLine("      03 Both");
             //Console.WriteLine("      04 Host-based authentication");
             //Console.WriteLine("      05 GSSAPI/Kerberos authentication");
@@ -89,41 +89,40 @@ namespace SteeleTerm.SSH
                 if (keyEntryMethod == "01" || keyEntryMethod == "1")
                 {
                     keyEntryMethod = "MKE"; //Manual Key Entry
+                    Console.WriteLine();
                     keyPath = SteeleTerm.ReadToken(prompt, "Enter key file path: ", true, true, true);
+                    if (keyPath == null || keyPath.Trim().Length == 0) goto EnterKeyPath;
+                    if (!KeyChecker(keyPath)) goto EnterKeyPath;
                 }
                 else if (keyEntryMethod == "02" || keyEntryMethod == "2")
                 {
+                    keyEntryMethod = "D&D"; //Drag and Drop
+                    Console.WriteLine();
                     bool dragAndDrop = false;
                     while (!dragAndDrop)
                     {
-                        keyEntryMethod = "D&D"; //Drag and Drop
                         keyPath = SteeleTerm.ReadToken(prompt, "Please drag and drop the key file into the console: ", true, true, true);
-                        if (keyPath == null || keyPath.Trim().Length == 0) dragAndDrop = false;
-                        else if (string.Equals(keyPath, "Exit", StringComparison.Ordinal)) { Console.WriteLine(""); return 0; }
-                        else
-                        {
-                            if (keyPath.Length >= 2 && ((keyPath[0] == '"' && keyPath[^1] == '"') || (keyPath[0] == '\'' && keyPath[^1] == '\''))) keyPath = keyPath[1..^1];
-                            if (!File.Exists(keyPath)) continue;
-                            string firstLine = "";
-                            try { firstLine = File.ReadLines(keyPath).FirstOrDefault() ?? ""; } catch { Console.WriteLine(prompt + "Cannot read the key file."); continue; }
-                            firstLine = firstLine.Trim();
-                            if (keyPath.EndsWith(".pub", StringComparison.OrdinalIgnoreCase) || firstLine.StartsWith("ssh-", StringComparison.Ordinal)) { Console.WriteLine(prompt + "Public key files are not supported. Please provide a private key file."); continue; }
-                            bool headerPrivateKey = firstLine.StartsWith("-----BEGIN ", StringComparison.Ordinal) || firstLine.StartsWith("PuTTY-User-Key-File-", StringComparison.Ordinal);
-                            if (!headerPrivateKey) { Console.WriteLine(prompt + "The provided file does not appear to be a private key file. Please try again."); continue; }
-                            dragAndDrop = true;
-                        }
+                        if (keyPath == null || keyPath.Trim().Length == 0) goto EnterKeyPath;
+                        else if (string.Equals(keyPath, "Exit", StringComparison.Ordinal)) { Console.WriteLine(); return 0; }
+                        else { if (KeyChecker(keyPath)) dragAndDrop = true; }
                     }
                 }
                 else if (keyEntryMethod == "03" || keyEntryMethod == "3")
                 {
                     keyEntryMethod = "BFD"; //Browse File Directory
-                    keyPath = SteeleTerm.SteeleTermFileBrowser(prompt, "Select SSH private key", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh"));
+                    Console.WriteLine();
+                BrowseFileDirectory:
+                    keyPath = SteeleTerm.SteeleTermFileBrowser(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh"), false);
+                    if (keyPath == null) goto BrowseFileDirectory;
+                    if (keyPath == "exit") goto EnterKeyPath;
                     if (keyPath == "Exit") return 0;
-                    if (keyPath == null) goto EnterKeyPath;
+                    if (!KeyChecker(keyPath)) goto BrowseFileDirectory;
+
                 }
+                else if (string.Equals(keyEntryMethod, "Exit", StringComparison.Ordinal)) { Console.WriteLine(); return 0; }
                 else { SteeleTerm.ClearLine(keyPathTop); goto EnterKeyPath; }
                 if (keyPath == null) { SteeleTerm.ClearLine(keyPathTop); goto EnterKeyPath; }
-                if (string.Equals(keyPath, "Exit", StringComparison.Ordinal)) { Console.WriteLine(""); return 0; }
+                if (string.Equals(keyPath, "Exit", StringComparison.Ordinal)) { Console.WriteLine(); return 0; }
                 keyPath = keyPath.Trim();
                 if (keyPath.Length == 0) { SteeleTerm.ClearLine(keyPathTop); goto EnterKeyPath; }
                 if (keyPath.Length >= 2 && ((keyPath[0] == '"' && keyPath[^1] == '"') || (keyPath[0] == '\'' && keyPath[^1] == '\''))) keyPath = keyPath[1..^1];
@@ -141,7 +140,7 @@ namespace SteeleTerm.SSH
             if (Connect == "N") { Console.WriteLine(""); goto Reset; }
             if (Connect == "Y")
             {
-                Console.WriteLine("");
+                Console.WriteLine();
                 int dnsTop = Console.CursorTop;
                 IPAddress[] hostIP;
                 if (IPAddress.TryParse(hostAddress, out var literalIP)) hostIP = [literalIP];
@@ -254,6 +253,25 @@ namespace SteeleTerm.SSH
                 if (reachableIP == null) { Console.WriteLine(prompt + "Unable to connect to any resolved address on that port."); goto Reset; }
                 Console.WriteLine($"{prompt}Selected: {reachableIP}:{portNum}");
                 var methods = new List<AuthenticationMethod>();
+                if (authMethod == "PW" || authMethod == "BTH")
+                {
+                    methods.Add(new PasswordAuthenticationMethod(userID, password!));
+                    var ki = new KeyboardInteractiveAuthenticationMethod(userID);
+                    ki.AuthenticationPrompt += (sender, e) =>
+                    {
+                        foreach (var prompt in e.Prompts)
+                        {
+                            prompt.Response = password!;
+                        }
+                    };
+                    methods.Add(ki);
+                }
+                if (authMethod == "PK" || authMethod == "BTH")
+                {
+                    var keyFile = string.IsNullOrEmpty(keyPassphrase) ? new PrivateKeyFile(keyPath!) : new PrivateKeyFile(keyPath!, keyPassphrase);
+                    methods.Add(new PrivateKeyAuthenticationMethod(userID, keyFile));
+                }
+                if (methods.Count == 0) { Console.WriteLine($"{prompt}No authentication methods configured."); goto Reset; }
                 var ci = new ConnectionInfo(reachableIP!.ToString(), portNum, userID, [.. methods]);
                 using var client = new SshClient(ci);
                 //Optional but recommended: client.HostKeyReceived += ... (verify fingerprint / known-hosts style)
@@ -263,6 +281,18 @@ namespace SteeleTerm.SSH
             }
             else goto Connect;
             return 0;
+        }
+        private static bool KeyChecker(string keyPath)
+        {
+            if (keyPath.Length >= 2 && ((keyPath[0] == '"' && keyPath[^1] == '"') || (keyPath[0] == '\'' && keyPath[^1] == '\''))) keyPath = keyPath[1..^1];
+            if (!File.Exists(keyPath)) return false;
+            string firstLine;
+            try { firstLine = File.ReadLines(keyPath).FirstOrDefault() ?? ""; } catch { Console.WriteLine(prompt + "Cannot read the key file."); return false; }
+            firstLine = firstLine.Trim();
+            if (keyPath.EndsWith(".pub", StringComparison.OrdinalIgnoreCase) || firstLine.StartsWith("ssh-", StringComparison.Ordinal)) { Console.WriteLine(prompt + "Public key files are not supported. Please provide a private key file."); return false; }
+            bool headerPrivateKey = firstLine.StartsWith("-----BEGIN ", StringComparison.Ordinal) || firstLine.StartsWith("PuTTY-User-Key-File-", StringComparison.Ordinal);
+            if (!headerPrivateKey) { Console.WriteLine(prompt + "The provided file does not appear to be a private key file. Please try again."); return false; }
+            return true;
         }
         private static void SetPromptDisconnected() { prompt = " 🔒 > "; }
         private static void SetPromptHost(string host) { prompt = $" 🔒 {host} > "; }
