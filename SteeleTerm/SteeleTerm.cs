@@ -29,9 +29,9 @@ namespace SteeleTerm
                 Console.WriteLine("  \'--help\'                              Print help list to console.");
                 Console.WriteLine("  \'--serial\'                            Open SteeleTerm in serial mode.");
                 Console.WriteLine("  \'--ssh\'                               Open SteeleTerm in ssh mode.");
+                Console.WriteLine("  \'--update [secondary] [tetiary]\'      Increment patch version.");
                 Console.WriteLine("  \'--updateMajor [secondary] [tetiary]\' Increment major version.");
                 Console.WriteLine("  \'--updateMinor [secondary] [tetiary]\' Increment minor version.");
-                Console.WriteLine("  \'--update [secondary] [tetiary]\'      Increment patch version.");
                 Console.WriteLine("Secondary args:");
                 Console.WriteLine("  \'<primary> --forceUpdate [tertiary]\'  Force rebuild/reinstall even if nothing changed. Requires an update primary arg.");
                 Console.WriteLine("Tertiary args:");
