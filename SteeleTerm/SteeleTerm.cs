@@ -12,6 +12,7 @@ namespace SteeleTerm
     class SteeleTerm
     {
         internal static readonly object consoleLock = new();
+        static readonly string[] availableCommands = ["--fileBrowser", "--help", "--serial", "--ssh", "--update", "--updateMajor", "--updateMinor"];
         static int Main(string[] args)
         {
             Console.InputEncoding = Encoding.UTF8;
@@ -20,18 +21,19 @@ namespace SteeleTerm
             bool hasHelp = args.Contains("--help", StringComparer.Ordinal);
             bool hasSerial = args.Contains("--serial", StringComparer.Ordinal);
             bool hasSSH = args.Contains("--ssh", StringComparer.Ordinal);
+            if (args.Length == 0 || !args.Any(arg => availableCommands.Contains(arg))) { Console.WriteLine("Use --help for arg list."); return 1; }
             if (hasHelp)
             {
                 Console.WriteLine("Commands:");
-                Console.WriteLine("  \'SteeleTerm\'                         Print \'Use --help for arg list\' message.");
+                Console.WriteLine("  \'SteeleTerm\'                          Print \'Use --help for arg list\' message.");
                 Console.WriteLine("Primary args:");
                 Console.WriteLine("  \'--fileBrowser\'                       Open SteeleTerm file browser.");
                 Console.WriteLine("  \'--help\'                              Print help list to console.");
                 Console.WriteLine("  \'--serial\'                            Open SteeleTerm in serial mode.");
                 Console.WriteLine("  \'--ssh\'                               Open SteeleTerm in ssh mode.");
-                Console.WriteLine("  \'--update [secondary] [tetiary]\'      Increment patch version.");
-                Console.WriteLine("  \'--updateMajor [secondary] [tetiary]\' Increment major version.");
-                Console.WriteLine("  \'--updateMinor [secondary] [tetiary]\' Increment minor version.");
+                Console.WriteLine("  \'--update [secondary] [tertiary]\'     Increment patch version.");
+                Console.WriteLine("  \'--updateMajor [secondary] [tertiary]\'Increment major version.");
+                Console.WriteLine("  \'--updateMinor [secondary] [teriary]\' Increment minor version.");
                 Console.WriteLine("Secondary args:");
                 Console.WriteLine("  \'<primary> --forceUpdate [tertiary]\'  Force rebuild/reinstall even if nothing changed. Requires an update primary arg.");
                 Console.WriteLine("Tertiary args:");
@@ -41,7 +43,6 @@ namespace SteeleTerm
             if (!ToolBoxHandshake.VerifyToolBoxHost()) return 1;
             if (Update.TryHandleUpdateCommandTree(args, "SteeleTerm", "SteeleTerm.csproj", out var updateExitCode)) return updateExitCode;
             if ((hasHelp && hasSerial) || (hasHelp && hasSSH) || (hasSerial && hasSSH) || (hasHelp && hasFileBrowser) || (hasSerial && hasFileBrowser) || (hasSSH && hasFileBrowser)) { Console.WriteLine("Only one primary argument allowed."); return 1; }
-            if (args.Length == 0) { Console.WriteLine("Use --help for arg list."); return 1; }
             if (hasFileBrowser) { SteeleTermFileBrowser(Directory.GetCurrentDirectory(), true); return 0; }
             if (hasSerial) { SteeleTermSerial.Serial(); return 0; }
             if (hasSSH) { SteeleTermSSH.SSH(); return 0; }
