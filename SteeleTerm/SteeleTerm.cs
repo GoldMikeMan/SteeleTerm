@@ -4,12 +4,13 @@ using SteeleTerm.SSH;
 using SteeleTerm.ToolBox;
 using SteeleTerm.Updater;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
 [assembly: SupportedOSPlatform("windows")]
 namespace SteeleTerm
 {
-    class SteeleTerm
+    partial class SteeleTerm
     {
         internal static readonly object consoleLock = new();
         static readonly string[] availableCommands = ["--fileBrowser", "--help", "--serial", "--ssh", "--update", "--updateMajor", "--updateMinor"];
@@ -261,29 +262,27 @@ namespace SteeleTerm
                 {
                     try { dirs = Directory.GetDirectories(cwd); files = Directory.GetFiles(cwd); }
                     catch { Console.WriteLine($"{promptFileBrowser}Cannot access directory."); var parent = Directory.GetParent(cwd); if (parent != null) { cwd = parent.FullName; continue; } inThisPc = true; continue; }
+                    SortNatural(dirs);
+                    SortNatural(files);
                     for (int d = 0; d < dirs.Length; d++) items.Add((true, Path.GetFileName(dirs[d]), dirs[d]));
                     for (int f = 0; f < files.Length; f++) items.Add((false, Path.GetFileName(files[f]), files[f]));
                 }
                 int count = items.Count;
                 var display = new List<string>(count);
-                int maxLen = 0;
                 for (int k = 0; k < count; k++)
                 {
-                    string icon = inThisPc ? "[💽]" : (items[k].IsDir ? "[📁]" : "[📄]");
-                    string s = $"{k + 1:00} {icon} {items[k].Name}";
+                    string icon = inThisPc ? "💽" : (items[k].IsDir ? "📁" : GetFileIcon(items[k].Name));
+                    string s = $"{k + 1:0000}{icon} {items[k].Name}";
                     display.Add(s);
-                    if (s.Length > maxLen) maxLen = s.Length;
                 }
                 int consoleWidth;
-                try { consoleWidth = Console.WindowWidth; } catch { consoleWidth = 120; }
-                consoleWidth = Math.Max(60, consoleWidth);
-                int prefixWidth = promptFileBrowser.Length;
-                int w = Math.Max(40, consoleWidth - prefixWidth);
-                int sep = 3;
-                int itemWidth = Math.Min(32, Math.Max(18, maxLen));
-                int cols = Math.Max(1, (w + sep) / (itemWidth + sep));
-                int total = cols * itemWidth + (cols - 1) * sep;
-                string bar = new('-', total);
+                try { consoleWidth = Console.WindowWidth; } catch { consoleWidth = 64; }
+                consoleWidth = Math.Max(64, consoleWidth);
+                int fileBrowserWidth = Math.Max(64, consoleWidth);
+                int itemWidth = 31;
+                int cols = Math.Max(2, fileBrowserWidth / 32);
+                int total = cols * 32;
+                string bar = new('-', total - 1);
                 Console.WriteLine();
                 bool redirectedRender = Console.IsOutputRedirected;
                 int renderTop = Console.CursorTop;
@@ -327,14 +326,14 @@ namespace SteeleTerm
                             string fmt = di.IsReady ? di.DriveFormat : "NOTREADY";
                             string label = di.IsReady ? (di.VolumeLabel ?? "") : "";
                             label = label.Trim();
-                            header = label.Length == 0 ? $"This PC\\[{fmt}] {cwd}" : $"This PC\\{label} [{fmt}] {cwd}\\";
+                            header = label.Length == 0 ? $"This PC\\[{fmt}] {cwd}" : $"This PC\\[{fmt}] {label} {cwd}\\";
                         }
                         else header = $"This PC\\[PATH] {cwd}\\";
                     }
                     catch { header = $"This PC\\[FS] {cwd}\\"; }
                 }
                 string pathLine = header.Length > total ? string.Concat(header.AsSpan(0, Math.Max(0, total - 3)), "...") : header;
-                int rows = (count + cols - 1) / cols;
+                int rows = Math.Max(((count + cols - 1) / cols), 16);
                 var cellText = new string?[rows, cols];
                 var cellIdx = new int[rows, cols];
                 for (int r = 0; r < rows; r++)
@@ -355,16 +354,16 @@ namespace SteeleTerm
                     ClearLine(renderTop);
                     Console.SetCursorPosition(0, renderTop);
                 }
-                Console.WriteLine("      " + pathLine.PadRight(total));
-                Console.WriteLine("      " + bar);
+                Console.WriteLine(" " + pathLine.PadRight(total - 1));
+                Console.WriteLine(" " + bar);
                 for (int r = 0; r < rows; r++)
                 {
-                    Console.Write("      ");
+                    Console.Write(" ");
                     for (int c = 0; c < cols; c++)
                     {
                         string? cell = cellText[r, c];
                         if (cell == null) break;
-                        if (c != 0) Console.Write(" | ");
+                        if (c != 0) Console.Write("|");
                         int idx = cellIdx[r, c];
                         var old = Console.ForegroundColor;
                         if (colour[idx] == 1) Console.ForegroundColor = ConsoleColor.Green;
@@ -374,8 +373,8 @@ namespace SteeleTerm
                     }
                     Console.WriteLine();
                 }
-                Console.WriteLine("      " + bar);
-                Console.WriteLine("      Commands: ## = open/select | back = go up a directory | exit = close file browser | Exit = close SteeleTerm");
+                Console.WriteLine(" " + bar);
+                Console.WriteLine(" Commands: ## = open/select | back = go up a directory | exit = close file browser | Exit = close SteeleTerm");
                 Console.WriteLine();
                 string? input = ReadToken(promptFileBrowser, "", true, true, true);
                 if (input == null) continue;
@@ -407,7 +406,7 @@ namespace SteeleTerm
                 }
             }
         }
-        [System.Runtime.InteropServices.DllImport("mpr.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        [DllImport("mpr.dll", CharSet = CharSet.Unicode)]
         static extern int WNetGetConnection(string localName, StringBuilder remoteName, ref int length);
         static string? TryGetUncForDrive(string driveLetter)
         {
@@ -420,6 +419,36 @@ namespace SteeleTerm
             }
             catch { }
             return null;
+        }
+        static string[] SortNatural(string[] input, string[]? output = null)
+        {
+            if (output == null || ReferenceEquals(output, input)) output = input;
+            else if (output.Length != input.Length) throw new ArgumentException("Output array is not the same length as input array.", nameof(output));
+            Array.Copy(input, output, input.Length);
+            Array.Sort(output, WinSort.CompareNatural);
+            return output;
+        }
+        static partial class WinSort
+        {
+            [LibraryImport("shlwapi.dll", EntryPoint = "StrCmpLogicalW", StringMarshalling = StringMarshalling.Utf16)]
+            internal static partial int StrCmpLogicalW(string psz1, string psz2);
+            public static int CompareNatural(string a, string b) {  return StrCmpLogicalW(a, b); }
+        }
+        static readonly HashSet<string> compressedArchiveExts = new(StringComparer.Ordinal) { "7z", "apk", "arc", "arj", "bz2", "cab", "cpio", "gz", "iso", "jar", "lha", "lzh", "lz", "lzma", "lzo", "rar", "tar", "tbz2", "tgz", "txz", "xz", "zip", "zipx" };
+        static readonly HashSet<string> executableExts = new(StringComparer.Ordinal) { "appx", "appxbundle", "com", "exe", "msi", "msix", "msixbundle", "msp" };
+        static readonly HashSet<string> imageExts = new(StringComparer.Ordinal) { "avif","bmp","gif","heic","heif","ico","jpeg","jpg","png","svg","tif","tiff","webp" };
+        static string GetFileIcon(string fileName)
+        {
+            var ext = Path.GetExtension(fileName);
+            if (ext.Length != 0 && ext[0] == '.') ext = ext[1..];
+            ext = ext.ToLowerInvariant();
+            if (ext.Length != 0)
+            {
+                if (compressedArchiveExts.Contains(ext)) return "📦";
+                if (executableExts.Contains(ext)) return "⚙️";
+                if (imageExts.Contains(ext)) return "🌄";
+            }
+            return "📄";
         }
     }
 }
