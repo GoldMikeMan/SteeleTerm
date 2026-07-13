@@ -5,6 +5,8 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using static SteeleTerm.SteeleTerm;
+using Windows.Win32;
+using Windows.Win32.Devices.PortableDevices;
 namespace SteeleTerm.FileBrowser
 {
 	partial class SteeleTermFileBrowser

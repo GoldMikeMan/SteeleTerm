@@ -3,7 +3,9 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<AssemblyName>SteeleTerm</AssemblyName>
 		<Authors>GoldMike</Authors>
+		<CompilerGeneratedFilesOutputPath>generated</CompilerGeneratedFilesOutputPath>
 		<Description>Multipurpose terminal client.</Description>
+		<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<IsPackable>true</IsPackable>
 		<LangVersion>14</LangVersion>
@@ -15,13 +17,19 @@
 		<PackageOutputPath>./bin/Release/nupkg</PackageOutputPath>
 		<TargetFramework>net10.0</TargetFramework>
 		<ToolCommandName>SteeleTerm</ToolCommandName>
-		<Version>0.6.0</Version>
+		<Version>0.6.1</Version>
 	</PropertyGroup>
 	<ItemGroup>
+		<Compile Remove="generated/**/*.cs" />
 		<None Include="AddonModules\Updater\UpdateScript.ps1">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</None>
+		<None Include="generated/**/*.cs" Visible="true" />
+		<PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.298">
+		  <PrivateAssets>all</PrivateAssets>
+		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
 		<PackageReference Include="SSH.NET" Version="2025.1.0" />
 		<PackageReference Include="System.IO.Ports" Version="11.0.0-preview.5.26302.115" />
 		<PackageReference Include="System.Management" Version="11.0.0-preview.5.26302.115" />

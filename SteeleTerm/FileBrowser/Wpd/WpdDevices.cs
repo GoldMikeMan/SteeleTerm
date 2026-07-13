@@ -1,4 +1,5 @@
 ﻿using System.Runtime.InteropServices;
+using Windows.Win32.Devices.PortableDevices;
 namespace SteeleTerm.FileBrowser.Wpd
 {
 	internal class WpdDevices

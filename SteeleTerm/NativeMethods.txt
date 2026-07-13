@@ -1,0 +1,9 @@
+CLSID_PortableDevice
+CLSID_PortableDeviceManager
+IEnumPortableDeviceObjectIDs
+IPortableDevice
+IPortableDeviceCapabilities
+IPortableDeviceContent
+IPortableDeviceManager
+IPortableDeviceProperties
+IPortableDeviceValues
