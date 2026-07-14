@@ -1,4 +1,5 @@
 ﻿using System.Runtime.InteropServices;
+using Windows.Win32;
 using Windows.Win32.Devices.PortableDevices;
 namespace SteeleTerm.FileBrowser.Wpd
 {
@@ -10,18 +11,20 @@ namespace SteeleTerm.FileBrowser.Wpd
 			foreach (string deviceID in deviceIDs)
 			{
 				uint requiredChars = 0;
-				try { deviceManager.GetDeviceFriendlyName(deviceID, 0, ref requiredChars); } catch { }
-				if (requiredChars == 0) { deviceNames.Add("Unknown Device"); continue; }
-				nint bufferPtr = Marshal.AllocHGlobal((int)requiredChars * 2);
-				uint capacityChars = requiredChars;
-				try
-				{
-					deviceManager.GetDeviceFriendlyName(deviceID, bufferPtr, ref capacityChars);
-					string deviceName = Marshal.PtrToStringUni(bufferPtr) ?? "Unknown Device";
-					deviceNames.Add(deviceName);
-				}
-				catch { deviceNames.Add("Unknown Device"); }
-				finally { Marshal.FreeHGlobal(bufferPtr); }
+                Span<char> nameProbe = default;
+                try { deviceManager.GetDeviceFriendlyName(deviceID, ref nameProbe, ref requiredChars); } catch (COMException ex) { Console.WriteLine($"WPD: GetDeviceFriendlyName probe failed for {deviceID} (0x{ex.HResult:X8})"); }
+                if (requiredChars == 0) { deviceNames.Add("Unknown Device"); continue; }
+                char[] nameBuffer = new char[requiredChars];
+                nameBuffer[^1] = '\0';
+                Span<char> nameSpan = nameBuffer;
+                uint capacityChars = requiredChars;
+                try
+                {
+                    deviceManager.GetDeviceFriendlyName(deviceID, ref nameSpan, ref capacityChars);
+                    string deviceName = new(nameSpan);
+                    deviceNames.Add(deviceName);
+                }
+                catch { deviceNames.Add("Unknown Device"); }
 			}
 			return [.. deviceNames];
 		}

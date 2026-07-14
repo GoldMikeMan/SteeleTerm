@@ -1,22 +1,26 @@
-﻿using Microsoft.Win32;
+﻿using EnumExt = Windows.Win32.Devices_PortableDevices_IEnumPortableDeviceObjectIDs_Extensions;
+using Microsoft.Win32;
 using SteeleTerm.AddonModules;
 using SteeleTerm.FileBrowser.Wpd;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-using static SteeleTerm.SteeleTerm;
 using Windows.Win32;
 using Windows.Win32.Devices.PortableDevices;
+using Windows.Win32.Foundation;
+using static SteeleTerm.SteeleTerm;
+using static Windows.Win32.Devices_PortableDevices_IPortableDeviceValues_Extensions;
 namespace SteeleTerm.FileBrowser
 {
 	partial class SteeleTermFileBrowser
 	{
-		public static string? FileBrowser(string? startDir, bool allowOpen)
+        public static string? FileBrowser(string? startDir, bool allowOpen)
 		{
 			string promptFileBrowser = " 📂 > ";
 			string cwd = startDir ?? "";
 			bool inThisPc = false;
-			if (cwd.Length == 0 || !Directory.Exists(cwd)) cwd = Directory.GetCurrentDirectory();
+            Span<PWSTR> ids = stackalloc PWSTR[1];
+            if (cwd.Length == 0 || !Directory.Exists(cwd)) cwd = Directory.GetCurrentDirectory();
 			while (true)
 			{
 				string currentDir = Directory.GetCurrentDirectory();
@@ -120,16 +124,18 @@ namespace SteeleTerm.FileBrowser
 							device.Content(out IPortableDeviceContent content);
 							content.EnumObjects(0, "DEVICE", null, out IEnumPortableDeviceObjectIDs enumerator);
 							content.Properties(out IPortableDeviceProperties properties);
-							PropertyKey WPD_OBJECT_NAME = new() { fmtid = new Guid("EF6B490D-5CD8-437A-AFFC-DA8B60EE4A3C"), pid = 4 };
-							PropertyKey WPD_OBJECT_CONTENT_TYPE = new() { fmtid = new Guid("EF6B490D-5CD8-437A-AFFC-DA8B60EE4A3C"), pid = 7 };
-							while (true)
+                            PROPERTYKEY WPD_OBJECT_NAME = new() { fmtid = new Guid("EF6B490D-5CD8-437A-AFFC-DA8B60EE4A3C"), pid = 4 };
+                            PROPERTYKEY WPD_OBJECT_CONTENT_TYPE = new() { fmtid = new Guid("EF6B490D-5CD8-437A-AFFC-DA8B60EE4A3C"), pid = 7 };
+                            while (true)
 							{
 								uint fetched = 0;
-								int hr = enumerator.Next(1, out string objID, ref fetched);
+                                HRESULT hr = EnumExt.Next(enumerator, ids, ref fetched);
 								if (hr != 0 || fetched == 0) break;
-								properties.GetValues(objID, null, out IPortableDeviceValues values);
-								values.GetStringValue(ref WPD_OBJECT_NAME, out string name);
-								values.GetGuidValue(ref WPD_OBJECT_CONTENT_TYPE, out Guid contentType);
+                                string objID = ids[0].ToString();
+                                properties.GetValues(objID, null, out IPortableDeviceValues values);
+                                values.GetStringValue(WPD_OBJECT_NAME, out PWSTR namePwstr);
+                                string name = namePwstr.ToString();
+                                values.GetGuidValue(WPD_OBJECT_CONTENT_TYPE, out Guid contentType);
 								bool isDir = contentType == new Guid("27E2E392-A111-48E0-AB0C-E17705A05F85");
 								if (isDir) { dirsWPD.Add((name, objID)); }
 								else { filesWPD.Add((name, objID)); }
@@ -329,7 +335,7 @@ namespace SteeleTerm.FileBrowser
 			catch { }
 			return null;
 		}
-		static string[] SortNatural(string[] input, string[]? output = null)
+        static string[] SortNatural(string[] input, string[]? output = null)
 		{
 			if (output == null || ReferenceEquals(output, input)) output = input;
 			else if (output.Length != input.Length) throw new ArgumentException("Output array is not the same length as input array.", nameof(output));
