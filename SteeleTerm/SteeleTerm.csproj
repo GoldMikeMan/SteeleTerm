@@ -29,16 +29,11 @@
 		</None>
 		<None Include="generated/**/*.cs" Visible="true" />
 		<PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.333">
-		  <PrivateAssets>all</PrivateAssets>
-		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="SSH.NET" Version="2026.0.0" />
-<<<<<<< HEAD
 		<PackageReference Include="System.IO.Ports" Version="11.0.0-preview.7.26381.103" />
 		<PackageReference Include="System.Management" Version="11.0.0-preview.7.26381.103" />
-=======
-		<PackageReference Include="System.IO.Ports" Version="11.0.0-preview.5.26302.115" />
-		<PackageReference Include="System.Management" Version="11.0.0-preview.5.26302.115" />
->>>>>>> origin/master
 	</ItemGroup>
 </Project>
