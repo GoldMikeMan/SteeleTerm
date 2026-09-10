@@ -271,7 +271,8 @@ namespace SteeleTerm.FileBrowser
 				Console.WriteLine(" " + bar);
 				Console.WriteLine(" Commands: #### = open/select | b = go up a directory | exit = close file browser | Exit = close SteeleTerm");
 				Console.WriteLine();
-				string? input = ReadToken(promptFileBrowser, "", true, true, true);
+                Console.Write(promptFileBrowser);
+                string? input = ReadToken(promptFileBrowser, "", true, true, true);
 				if (input == null) continue;
 				input = input.Trim();
 				if (input.Length == 0) continue;

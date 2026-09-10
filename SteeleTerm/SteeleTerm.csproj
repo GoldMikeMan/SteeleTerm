@@ -1,9 +1,11 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<AssemblyName>SteeleTerm</AssemblyName>
-		<Authors>GoldMike</Authors>
+		<Authors>GoldMikeDev</Authors>
 		<CompilerGeneratedFilesOutputPath>generated</CompilerGeneratedFilesOutputPath>
+		<DebugSymbols>true</DebugSymbols>
+		<DebugType>full</DebugType>
 		<Description>Multipurpose terminal client.</Description>
 		<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
 		<ImplicitUsings>enable</ImplicitUsings>
@@ -17,21 +19,21 @@
 		<PackageOutputPath>./bin/Release/nupkg</PackageOutputPath>
 		<TargetFramework>net10.0</TargetFramework>
 		<ToolCommandName>SteeleTerm</ToolCommandName>
-		<Version>0.6.1</Version>
+		<Version>0.7.6</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<Compile Remove="generated/**/*.cs" />
-		<None Include="AddonModules\Updater\UpdateScript.ps1">
+		<None Include="..\..\AddonModules\Updater\UpdateScript.ps1" Link="AddonModules\Updater\UpdateScript.ps1">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</None>
 		<None Include="generated/**/*.cs" Visible="true" />
-		<PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.298">
+		<PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.333">
 		  <PrivateAssets>all</PrivateAssets>
 		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
-		<PackageReference Include="SSH.NET" Version="2025.1.0" />
-		<PackageReference Include="System.IO.Ports" Version="11.0.0-preview.5.26302.115" />
-		<PackageReference Include="System.Management" Version="11.0.0-preview.5.26302.115" />
+		<PackageReference Include="SSH.NET" Version="2026.0.0" />
+		<PackageReference Include="System.IO.Ports" Version="11.0.0-preview.7.26381.103" />
+		<PackageReference Include="System.Management" Version="11.0.0-preview.7.26381.103" />
 	</ItemGroup>
 </Project>

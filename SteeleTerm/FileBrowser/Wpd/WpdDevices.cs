@@ -10,7 +10,7 @@ namespace SteeleTerm.FileBrowser.Wpd
 		{
 			var deviceList = new List<(string deviceID, string deviceName)>();
 			IPortableDeviceManager deviceManager;
-			try { deviceManager = PortableDeviceManagerFactory.Create(); } catch { return deviceList; }
+			try { deviceManager = PortableDeviceManagerFactory.Create(); } catch (COMException ex) { Console.WriteLine($"WPD: PortableDeviceManagerFactory.Create failed (0x{ex.HResult:X8})"); return deviceList; }
 			try { deviceManager.RefreshDeviceList(); } catch (COMException ex) { Console.WriteLine($"WPD: RefreshDeviceList failed (0x{ex.HResult:X8})"); }
             if (deviceManager == null) { return deviceList; }
 			List<string> deviceTypes = ["GetDevices", "GetPrivateDevices"];
